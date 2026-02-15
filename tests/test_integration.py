@@ -159,7 +159,9 @@ def test_energy_conservation_various_epsilon(epsilon):
 
 
 def test_momentum_conservation_periodic():
-    """Test that momentum is conserved in periodic boundary conditions."""
+    """Test that momentum is conserved in periodic boundary conditions with free particles only."""
+    # Note: Momentum is only strictly conserved for free particles
+    # Harmonic potentials can act as momentum sources/sinks
     config = ChainConfig(
         n_particles=10,
         mass_free=1.0,
@@ -171,6 +173,19 @@ def test_momentum_conservation_periodic():
     )
     chain = Chain(config)
     
+    # Replace all with free particles for this test
+    from src.core import Particle, ParticleType
+    for i in range(len(chain)):
+        chain.particles[i] = Particle(
+            index=i,
+            particle_type=ParticleType.FREE,
+            mass=1.0,
+            position=i * 1.0,
+            velocity=np.random.normal(0, 1.0),
+            equilibrium_pos=i * 1.0,
+            spring_constant=0.0
+        )
+    
     initial_momentum = chain.total_momentum()
     
     # Run simulation
@@ -178,5 +193,5 @@ def test_momentum_conservation_periodic():
     
     final_momentum = chain.total_momentum()
     
-    # Check momentum conservation
+    # Check momentum conservation (should be exact for free particles)
     assert abs(final_momentum - initial_momentum) < 1e-8
