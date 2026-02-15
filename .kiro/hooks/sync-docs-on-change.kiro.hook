@@ -1,0 +1,17 @@
+{
+  "enabled": true,
+  "name": "Sync Docs on Source Change",
+  "description": "Automatically updates README.md or docs/ folder when Python source files or configuration files are modified",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "*.py",
+      "pyproject.toml"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "Review the changes made to the source files and update the documentation accordingly. If the changes affect public APIs, usage examples, or configuration, update README.md. For more detailed technical documentation, update files in the docs/ folder."
+  }
+}
