@@ -46,24 +46,40 @@ pip install -e .
 ## Quick Start
 
 ```python
-from src.simulation import DingALingSimulator
-from src.core import ChainConfig
+from src.core import Particle, ParticleType
 
-# Configure system
-config = ChainConfig(
-    N=100,              # chain length
-    epsilon=1.0,        # energy parameter
-    T_hot=1.5,          # hot reservoir temperature
-    T_cold=0.5          # cold reservoir temperature
+# Create a free particle
+free_particle = Particle(
+    index=0,
+    particle_type=ParticleType.FREE,
+    mass=1.0,
+    position=0.0,
+    velocity=1.0,
+    equilibrium_pos=0.0,
+    spring_constant=0.0
 )
 
-# Run simulation
-sim = DingALingSimulator(config)
-results = sim.run(total_time=1000.0)
+# Create a harmonic particle
+harmonic_particle = Particle(
+    index=1,
+    particle_type=ParticleType.HARMONIC,
+    mass=1.0,
+    position=1.0,
+    velocity=0.5,
+    equilibrium_pos=1.0,
+    spring_constant=1.0
+)
 
-# Analyze
-print(f"Thermal conductivity: {results.conductivity:.4f}")
+# Evolve particles
+free_particle.evolve_free(dt=0.1)
+harmonic_particle.evolve_harmonic(dt=0.1)
+
+# Calculate energies
+print(f"Free particle KE: {free_particle.kinetic_energy():.4f}")
+print(f"Harmonic particle total E: {harmonic_particle.total_energy():.4f}")
 ```
+
+**Note**: Full simulation engine coming soon. Currently implementing core particle physics.
 
 ## Physics Parameters
 
