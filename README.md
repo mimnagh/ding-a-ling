@@ -43,6 +43,18 @@ ding-a-ling/
 pip install -e .
 ```
 
+## Current Status
+
+**Phase 1: Core Physics Engine** (In Progress)
+- ✅ Particle class with analytic evolution
+- ✅ ParticleType enum (FREE, HARMONIC)
+- ✅ Energy calculation methods
+- ⏳ Chain configuration
+- ⏳ Collision detection & resolution
+- ⏳ Event-driven simulator
+
+See `.kiro/specs/ding-a-ling-thermal-transport/tasks.md` for full implementation plan.
+
 ## Quick Start
 
 ```python
