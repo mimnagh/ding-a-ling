@@ -2,5 +2,10 @@
 
 from .particle import Particle, ParticleType
 from .chain import Chain, ChainConfig, BoundaryCondition
+from .collision import CollisionEvent, CollisionDetector, resolve_collision
 
-__all__ = ['Particle', 'ParticleType', 'Chain', 'ChainConfig', 'BoundaryCondition']
+__all__ = [
+    'Particle', 'ParticleType', 
+    'Chain', 'ChainConfig', 'BoundaryCondition',
+    'CollisionEvent', 'CollisionDetector', 'resolve_collision'
+]
