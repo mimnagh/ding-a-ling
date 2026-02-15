@@ -1,5 +1,30 @@
 # API Documentation
 
+## Installation
+
+### Package Installation
+
+```bash
+# Basic installation
+pip install -e .
+
+# Development installation (includes pytest, hypothesis, matplotlib, jupyter, black, ruff)
+pip install -e ".[dev]"
+
+# Testing only
+pip install -e ".[test]"
+
+# Visualization only
+pip install -e ".[viz]"
+```
+
+### Requirements
+
+- Python >= 3.9
+- NumPy >= 1.24.0
+- SciPy >= 1.10.0
+- Numba >= 0.57.0
+
 ## Core Module (`src.core`)
 
 ### Particle Class
@@ -174,13 +199,76 @@ p2.evolve_free(t_collision)
 assert abs(p1.position - p2.position) < 1e-6
 ```
 
+## Testing
+
+### Test Suite (`tests/test_particle.py`)
+
+Comprehensive unit tests verify all particle functionality:
+
+#### TestFreeParticleEvolution
+- `test_free_particle_evolution`: Verifies ballistic motion with constant velocity
+- `test_free_particle_negative_velocity`: Tests backward motion
+
+#### TestHarmonicParticleEvolution
+- `test_harmonic_particle_evolution`: Validates analytic solution at quarter period
+- `test_harmonic_particle_full_period`: Confirms return to initial state after full period
+- `test_harmonic_particle_with_equilibrium_offset`: Tests oscillation around non-zero equilibrium
+
+#### TestHarmonicEnergyConservation
+- `test_harmonic_energy_conservation`: Verifies |ΔE/E| < 10⁻¹⁰ over 100 time steps
+- `test_free_particle_energy_conservation`: Confirms kinetic energy conservation for free particles
+
+#### TestCollisionTimePrediction
+- `test_collision_time_free_free_approaching`: Validates collision time for approaching particles
+- `test_collision_time_free_free_receding`: Confirms no collision for receding particles
+- `test_collision_time_free_free_same_velocity`: Tests parallel motion case
+
+#### TestEnergyCalculations
+- `test_kinetic_energy`: Verifies KE = (1/2) * m * v²
+- `test_potential_energy_free`: Confirms PE = 0 for free particles
+- `test_potential_energy_harmonic`: Validates PE = (1/2) * k * (x - x_eq)²
+- `test_total_energy`: Tests E = KE + PE
+
+**Running Tests:**
+```bash
+# Run all particle tests
+pytest tests/test_particle.py -v
+
+# Run specific test class
+pytest tests/test_particle.py::TestHarmonicEnergyConservation -v
+
+# Run with coverage
+pytest tests/test_particle.py --cov=src.core.particle
+
+# Run property-based tests (when available)
+pytest -k property -v
+```
+
+**Test Configuration:**
+
+The project uses pytest with the following configuration (from `pyproject.toml`):
+- Test discovery: `tests/test_*.py`
+- Verbose output enabled by default
+- Strict marker mode
+
+**Code Quality:**
+
+```bash
+# Format code with Black (line length: 100)
+black src/ tests/
+
+# Lint with Ruff
+ruff check src/ tests/
+```
+
 ## Implementation Notes
 
 ### Numerical Precision
 
 - Free particle evolution is exact (no discretization error)
 - Harmonic particle evolution uses analytic solution (machine precision)
-- Energy conservation: |ΔE/E| < 10^-10 for harmonic particles
+- Energy conservation: |ΔE/E| < 10^-10 for harmonic particles (verified by tests)
+- All energy conservation tests pass with tolerance < 10^-10
 
 ### Performance Considerations
 

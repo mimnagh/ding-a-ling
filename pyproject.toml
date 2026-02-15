@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ding-a-ling"
+version = "0.1.0"
+description = "Thermal conductivity simulation for alternating free-harmonic particle chains"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [
+    {name = "Dominic Mimnagh", email = "mimnagh@gmail.com"}
+]
+dependencies = [
+    "numpy>=1.24.0",
+    "scipy>=1.10.0",
+    "numba>=0.57.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "hypothesis>=6.82.0",
+]
+viz = [
+    "matplotlib>=3.7.0",
+    "jupyter>=1.0.0",
+]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "hypothesis>=6.82.0",
+    "matplotlib>=3.7.0",
+    "jupyter>=1.0.0",
+    "black>=23.0.0",
+    "ruff>=0.0.280",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --strict-markers"
+
+[tool.black]
+line-length = 100
+target-version = ['py39', 'py310', 'py311']
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
