@@ -63,6 +63,7 @@
 - [ ] 6.4 Implement thermostat event scheduling
 - [ ] 6.5 Write unit tests for velocity distribution
 - [ ] 6.6 Write unit tests for detailed balance
+- [ ] 6.7 Implement cumulative energy exchange tracking
 
 ### 7. Heat Flux Measurement
 - [ ] 7.1 Implement `FluxMeter` class
@@ -70,6 +71,8 @@
 - [ ] 7.3 Implement time-averaged flux calculation
 - [ ] 7.4 Implement flux history storage
 - [ ] 7.5 Write unit tests for flux measurement
+- [ ] 7.6 Implement reservoir power calculation (alternative flux measure)
+- [ ] 7.7 Verify consistency between spatial and reservoir flux methods
 
 ### 8. Open System Simulation
 - [ ] 8.1 Integrate heat baths into simulator
