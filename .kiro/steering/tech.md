@@ -16,15 +16,18 @@
 
 ## Build System
 - pyproject.toml for package configuration
-- pip for dependency management
+- uv for fast dependency management and virtual environments
 
 ## Common Commands
 
-Currently the project is in early setup phase. Standard commands will include:
-
 ```bash
-# Installation
-pip install -e .
+# Setup virtual environment (first time)
+uv venv
+source .venv/bin/activate  # On macOS/Linux
+# .venv\Scripts\activate   # On Windows
+
+# Install package with dependencies
+uv pip install -e ".[test]"
 
 # Run tests
 pytest tests/
@@ -32,7 +35,11 @@ pytest tests/
 # Run property-based tests
 pytest tests/ -k property
 
-# Launch Jupyter
+# Run quick validation
+python run_tests.py
+
+# Launch Jupyter (after installing viz extras)
+uv pip install -e ".[viz]"
 jupyter notebook examples/
 ```
 
