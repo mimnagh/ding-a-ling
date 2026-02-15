@@ -257,3 +257,138 @@ def test_free_free_collision_detection():
     
     # They should collide at t=1.0 (meet in the middle)
     assert abs(t_collision - 1.0) < 1e-10
+
+
+# Property-based tests using Hypothesis
+from hypothesis import given, strategies as st, assume
+
+
+@given(
+    mass1=st.floats(min_value=0.1, max_value=10.0),
+    mass2=st.floats(min_value=0.1, max_value=10.0),
+    velocity1=st.floats(min_value=-10.0, max_value=10.0),
+    velocity2=st.floats(min_value=-10.0, max_value=10.0)
+)
+def test_elastic_collision_momentum_conservation(mass1, mass2, velocity1, velocity2):
+    """Property test: momentum is always conserved in elastic collisions."""
+    # Create two particles
+    p1 = Particle(
+        index=0, particle_type=ParticleType.FREE,
+        mass=mass1, position=0.0, velocity=velocity1,
+        equilibrium_pos=0.0, spring_constant=0.0
+    )
+    p2 = Particle(
+        index=1, particle_type=ParticleType.FREE,
+        mass=mass2, position=2.0, velocity=velocity2,
+        equilibrium_pos=2.0, spring_constant=0.0
+    )
+    
+    # Calculate initial momentum
+    initial_momentum = p1.mass * p1.velocity + p2.mass * p2.velocity
+    
+    # Resolve collision
+    resolve_collision(p1, p2)
+    
+    # Calculate final momentum
+    final_momentum = p1.mass * p1.velocity + p2.mass * p2.velocity
+    
+    # Check conservation (with tolerance for floating point errors)
+    assert abs(final_momentum - initial_momentum) < 1e-8
+
+
+@given(
+    mass1=st.floats(min_value=0.1, max_value=10.0),
+    mass2=st.floats(min_value=0.1, max_value=10.0),
+    velocity1=st.floats(min_value=-10.0, max_value=10.0),
+    velocity2=st.floats(min_value=-10.0, max_value=10.0)
+)
+def test_elastic_collision_energy_conservation(mass1, mass2, velocity1, velocity2):
+    """Property test: kinetic energy is always conserved in elastic collisions."""
+    # Create two particles
+    p1 = Particle(
+        index=0, particle_type=ParticleType.FREE,
+        mass=mass1, position=0.0, velocity=velocity1,
+        equilibrium_pos=0.0, spring_constant=0.0
+    )
+    p2 = Particle(
+        index=1, particle_type=ParticleType.FREE,
+        mass=mass2, position=2.0, velocity=velocity2,
+        equilibrium_pos=2.0, spring_constant=0.0
+    )
+    
+    # Calculate initial kinetic energy
+    initial_energy = p1.kinetic_energy() + p2.kinetic_energy()
+    
+    # Resolve collision
+    resolve_collision(p1, p2)
+    
+    # Calculate final kinetic energy
+    final_energy = p1.kinetic_energy() + p2.kinetic_energy()
+    
+    # Check conservation (with tolerance for floating point errors)
+    assert abs(final_energy - initial_energy) < 1e-8
+
+
+@given(
+    position1=st.floats(min_value=0.0, max_value=10.0),
+    position2=st.floats(min_value=0.0, max_value=10.0),
+    velocity1=st.floats(min_value=-10.0, max_value=10.0),
+    velocity2=st.floats(min_value=-10.0, max_value=10.0)
+)
+def test_collision_detection_accuracy(position1, position2, velocity1, velocity2):
+    """Property test: collision time calculation is accurate for free particles."""
+    # Ensure particles are distinct and ordered
+    assume(abs(position2 - position1) > 0.1)
+    if position1 > position2:
+        position1, position2 = position2, position1
+        velocity1, velocity2 = velocity2, velocity1
+    
+    # Create two free particles
+    p1 = Particle(
+        index=0, particle_type=ParticleType.FREE,
+        mass=1.0, position=position1, velocity=velocity1,
+        equilibrium_pos=position1, spring_constant=0.0
+    )
+    p2 = Particle(
+        index=1, particle_type=ParticleType.FREE,
+        mass=1.0, position=position2, velocity=velocity2,
+        equilibrium_pos=position2, spring_constant=0.0
+    )
+    
+    # Get collision time
+    t_collision = p1.time_to_collision(p2)
+    
+    if t_collision < np.inf:
+        # Evolve particles to collision time
+        p1.evolve_free(t_collision)
+        p2.evolve_free(t_collision)
+        
+        # They should be at the same position (within tolerance)
+        assert abs(p1.position - p2.position) < 1e-6
+
+
+@given(
+    n_events=st.integers(min_value=2, max_value=20)
+)
+def test_event_queue_ordering(n_events):
+    """Property test: event queue maintains proper time ordering."""
+    import heapq
+    
+    # Generate random collision events
+    events = []
+    for i in range(n_events):
+        time = np.random.uniform(0, 100)
+        event = CollisionEvent(
+            time=time,
+            particle_i=i,
+            particle_j=i+1,
+            event_type="particle-particle"
+        )
+        heapq.heappush(events, event)
+    
+    # Extract events and verify ordering
+    prev_time = -np.inf
+    while events:
+        event = heapq.heappop(events)
+        assert event.time >= prev_time
+        prev_time = event.time
