@@ -6,7 +6,9 @@ from scipy import stats
 
 from src.core.particle import Particle, ParticleType
 from src.core.chain import Chain, ChainConfig
-from src.simulation.reservoir import HeatBath, identify_boundary_particles
+from src.simulation.reservoir import (
+    HeatBath, ThermostatEvent, ThermostatScheduler, identify_boundary_particles,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -293,6 +295,192 @@ class TestDetailedBalance:
             energies.append(p.kinetic_energy())
 
         assert np.mean(energies) == pytest.approx(T / 2, rel=0.05)
+
+
+# ---------------------------------------------------------------------------
+# ThermostatEvent ordering (task 6.4)
+# ---------------------------------------------------------------------------
+
+class TestThermostatEvent:
+    def test_orders_by_time(self):
+        e1 = ThermostatEvent(time=1.0, particle_index=0, bath_index=0)
+        e2 = ThermostatEvent(time=2.0, particle_index=1, bath_index=1)
+        assert e1 < e2
+
+    def test_equal_time_orders_by_particle(self):
+        e1 = ThermostatEvent(time=1.0, particle_index=0, bath_index=0)
+        e2 = ThermostatEvent(time=1.0, particle_index=1, bath_index=0)
+        assert e1 < e2
+
+    def test_fields(self):
+        e = ThermostatEvent(time=3.5, particle_index=7, bath_index=1)
+        assert e.time == 3.5
+        assert e.particle_index == 7
+        assert e.bath_index == 1
+
+
+# ---------------------------------------------------------------------------
+# ThermostatScheduler (task 6.4)
+# ---------------------------------------------------------------------------
+
+class TestThermostatScheduler:
+    """Tests for the thermostat event priority queue."""
+
+    def _make_scheduler(self, seed=42):
+        """Build a scheduler with a 10-particle chain, 1 boundary each end."""
+        hot = HeatBath(temperature=2.0, coupling_rate=1.0,
+                       rng=np.random.default_rng(seed))
+        cold = HeatBath(temperature=0.5, coupling_rate=1.0,
+                        rng=np.random.default_rng(seed + 1))
+        config = ChainConfig(n_particles=10)
+        chain = Chain(config)
+        left, right = identify_boundary_particles(chain, n_boundary=1)
+        scheduler = ThermostatScheduler(hot, cold, left, right)
+        return scheduler, chain
+
+    def test_build_event_queue_schedules_all_boundary_particles(self):
+        scheduler, _ = self._make_scheduler()
+        scheduler.build_event_queue(current_time=0.0)
+        # 1 left + 1 right = 2 events
+        events = []
+        while True:
+            e = scheduler.get_next_event()
+            if e is None:
+                break
+            events.append(e)
+        assert len(events) == 2
+        indices = {e.particle_index for e in events}
+        assert indices == {0, 9}
+
+    def test_events_ordered_by_time(self):
+        scheduler, _ = self._make_scheduler()
+        scheduler.build_event_queue(current_time=0.0)
+        times = []
+        while True:
+            e = scheduler.get_next_event()
+            if e is None:
+                break
+            times.append(e.time)
+        assert times == sorted(times)
+
+    def test_all_events_in_future(self):
+        scheduler, _ = self._make_scheduler()
+        t0 = 5.0
+        scheduler.build_event_queue(current_time=t0)
+        while True:
+            e = scheduler.get_next_event()
+            if e is None:
+                break
+            assert e.time > t0
+
+    def test_peek_next_time_without_consuming(self):
+        scheduler, _ = self._make_scheduler()
+        scheduler.build_event_queue(current_time=0.0)
+        t_peek = scheduler.peek_next_time()
+        e = scheduler.get_next_event()
+        assert t_peek == pytest.approx(e.time)
+
+    def test_peek_empty_returns_inf(self):
+        scheduler, _ = self._make_scheduler()
+        # Don't build queue — empty
+        assert scheduler.peek_next_time() == float("inf")
+
+    def test_process_event_reschedules(self):
+        scheduler, chain = self._make_scheduler()
+        scheduler.build_event_queue(current_time=0.0)
+        event = scheduler.get_next_event()
+        # After processing, a new event should appear for the same particle
+        scheduler.process_event(event, chain)
+        # Drain remaining events
+        particles_seen = set()
+        while True:
+            e = scheduler.get_next_event()
+            if e is None:
+                break
+            particles_seen.add(e.particle_index)
+        assert event.particle_index in particles_seen
+
+    def test_process_event_resamples_velocity(self):
+        scheduler, chain = self._make_scheduler(seed=99)
+        scheduler.build_event_queue(current_time=0.0)
+        event = scheduler.get_next_event()
+        p = chain[event.particle_index]
+        v_before = p.velocity
+        scheduler.process_event(event, chain)
+        # Velocity was resampled (extremely unlikely to be identical)
+        assert p.velocity != pytest.approx(v_before, abs=1e-12)
+
+    def test_process_event_tracks_energy(self):
+        scheduler, chain = self._make_scheduler(seed=77)
+        scheduler.build_event_queue(current_time=0.0)
+        event = scheduler.get_next_event()
+        bath = scheduler.baths[event.bath_index]
+        assert bath.n_events == 0
+        scheduler.process_event(event, chain)
+        assert bath.n_events == 1
+
+    def test_correct_bath_assignment(self):
+        scheduler, _ = self._make_scheduler()
+        scheduler.build_event_queue(current_time=0.0)
+        events = []
+        while True:
+            e = scheduler.get_next_event()
+            if e is None:
+                break
+            events.append(e)
+        bath_map = {e.particle_index: e.bath_index for e in events}
+        assert bath_map[0] == 0   # left → hot bath
+        assert bath_map[9] == 1   # right → cold bath
+
+    def test_reschedule_particle(self):
+        scheduler, _ = self._make_scheduler()
+        scheduler.build_event_queue(current_time=0.0)
+        t_before = scheduler.peek_next_time()
+        # Reschedule particle 0 at a later time
+        scheduler.reschedule_particle(0, current_time=100.0)
+        # The rescheduled event for particle 0 should be > 100
+        events = []
+        while True:
+            e = scheduler.get_next_event()
+            if e is None:
+                break
+            events.append(e)
+        p0_event = [e for e in events if e.particle_index == 0][0]
+        assert p0_event.time > 100.0
+
+    def test_reschedule_non_boundary_is_noop(self):
+        scheduler, _ = self._make_scheduler()
+        scheduler.build_event_queue(current_time=0.0)
+        # Particle 5 is not a boundary particle — should be a no-op
+        scheduler.reschedule_particle(5, current_time=0.0)
+        events = []
+        while True:
+            e = scheduler.get_next_event()
+            if e is None:
+                break
+            events.append(e)
+        assert len(events) == 2  # still only 2 boundary particles
+
+    def test_multiple_boundary_particles(self):
+        """Scheduler with 2 boundary particles per side."""
+        hot = HeatBath(temperature=2.0, coupling_rate=1.0,
+                       rng=np.random.default_rng(50))
+        cold = HeatBath(temperature=0.5, coupling_rate=1.0,
+                        rng=np.random.default_rng(51))
+        config = ChainConfig(n_particles=10)
+        chain = Chain(config)
+        left, right = identify_boundary_particles(chain, n_boundary=2)
+        scheduler = ThermostatScheduler(hot, cold, left, right)
+        scheduler.build_event_queue(current_time=0.0)
+        events = []
+        while True:
+            e = scheduler.get_next_event()
+            if e is None:
+                break
+            events.append(e)
+        assert len(events) == 4
+        indices = {e.particle_index for e in events}
+        assert indices == {0, 1, 8, 9}
 
 
 # ---------------------------------------------------------------------------
