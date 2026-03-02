@@ -296,6 +296,47 @@ class TestDetailedBalance:
 
         assert np.mean(energies) == pytest.approx(T / 2, rel=0.05)
 
+    def test_scheduler_process_event_preserves_equilibrium(self):
+        """Scheduler-driven thermostat should also yield MB distribution."""
+        T_hot = 3.0
+        hot = HeatBath(temperature=T_hot, coupling_rate=1.0,
+                       rng=np.random.default_rng(20))
+        cold = HeatBath(temperature=1.0, coupling_rate=1.0,
+                        rng=np.random.default_rng(21))
+        config = ChainConfig(n_particles=6)
+        chain = Chain(config)
+        left, right = identify_boundary_particles(chain, n_boundary=1)
+        scheduler = ThermostatScheduler(hot, cold, left, right)
+        scheduler.build_event_queue(current_time=0.0)
+
+        # Repeatedly process events for the left boundary particle (index 0)
+        m = chain[0].mass
+        velocities = []
+        for _ in range(5_000):
+            event = scheduler.get_next_event()
+            scheduler.process_event(event, chain)
+            if event.particle_index == 0:
+                velocities.append(chain[0].velocity)
+
+        sigma = np.sqrt(T_hot / m)
+        _, p_value = stats.kstest(velocities, "norm", args=(0.0, sigma))
+        assert p_value > 0.01
+
+    def test_net_energy_exchange_averages_near_zero_at_equilibrium(self):
+        """At equilibrium (bath T = particle T), net energy exchange -> 0."""
+        T = 1.0
+        rng = np.random.default_rng(22)
+        bath = HeatBath(temperature=T, coupling_rate=1.0, rng=rng)
+
+        # Start particle at equilibrium velocity
+        p = make_particle(mass=1.0, velocity=0.0)
+        for _ in range(10_000):
+            bath.apply_thermostat(p, dt=100.0)
+
+        # Mean energy exchange per event should be near zero
+        mean_exchange = bath.energy_exchanged / bath.n_events
+        assert mean_exchange == pytest.approx(0.0, abs=0.1)
+
 
 # ---------------------------------------------------------------------------
 # ThermostatEvent ordering (task 6.4)
