@@ -117,57 +117,125 @@ class Particle:
         # Only return positive times (future collisions)
         return t_collision if t_collision > 0 else np.inf
     
-    def _time_to_collision_general(self, other: 'Particle', dt: float = 0.01, 
-                                   max_time: float = 1000.0) -> float:
+    def _time_to_collision_general(self, other: 'Particle',
+                                   max_time: float = 100.0) -> float:
         """
-        General collision detection using time-stepping.
-        
-        This is a simplified implementation. A production version would use
-        proper root-finding algorithms for harmonic particles.
-        
+        General collision detection using vectorized sign-change detection.
+
+        Computes the signed gap (other.pos - self.pos) at many time points
+        using numpy, finds the first sign change, then refines with bisection.
+
         Args:
             other: Other particle
-            dt: Time step for checking
             max_time: Maximum time to check
-            
+
         Returns:
-            Approximate time until collision, or np.inf if no collision found
+            Time until collision, or np.inf if no collision found
         """
-        # Create temporary copies to evolve
-        p1_pos, p1_vel = self.position, self.velocity
-        p2_pos, p2_vel = other.position, other.velocity
-        
-        prev_distance = abs(p2_pos - p1_pos)
-        
-        for step in range(int(max_time / dt)):
-            t = step * dt
-            
-            # Evolve particles
+        def _gap_scalar(t):
+            """Signed gap at scalar time t."""
             if self.particle_type == ParticleType.FREE:
-                p1_pos = self.position + self.velocity * t
+                p1 = self.position + self.velocity * t
             else:
-                omega = np.sqrt(self.spring_constant / self.mass)
-                x0 = self.position - self.equilibrium_pos
-                p1_pos = self.equilibrium_pos + x0 * np.cos(omega * t) + \
-                        (self.velocity / omega) * np.sin(omega * t)
-            
+                omega1 = np.sqrt(self.spring_constant / self.mass)
+                x01 = self.position - self.equilibrium_pos
+                p1 = (self.equilibrium_pos + x01 * np.cos(omega1 * t)
+                      + (self.velocity / omega1) * np.sin(omega1 * t))
             if other.particle_type == ParticleType.FREE:
-                p2_pos = other.position + other.velocity * t
+                p2 = other.position + other.velocity * t
             else:
-                omega = np.sqrt(other.spring_constant / other.mass)
-                x0 = other.position - other.equilibrium_pos
-                p2_pos = other.equilibrium_pos + x0 * np.cos(omega * t) + \
-                        (other.velocity / omega) * np.sin(omega * t)
-            
-            distance = abs(p2_pos - p1_pos)
-            
-            # Check if particles crossed (distance decreased then increased)
-            if distance < 1e-6:  # Collision threshold
-                return t
-            
-            prev_distance = distance
-        
-        return np.inf
+                omega2 = np.sqrt(other.spring_constant / other.mass)
+                x02 = other.position - other.equilibrium_pos
+                p2 = (other.equilibrium_pos + x02 * np.cos(omega2 * t)
+                      + (other.velocity / omega2) * np.sin(omega2 * t))
+            return p2 - p1
+
+        # Vectorized gap over array of times.
+        # Start at dt (not 0) to skip post-collision states where gap ≈ 0
+        # but particles are separating.
+        dt = 0.05
+        ts = np.arange(dt, max_time + dt, dt)
+        # Build position arrays
+        if self.particle_type == ParticleType.FREE:
+            p1 = self.position + self.velocity * ts
+        else:
+            omega1 = np.sqrt(self.spring_constant / self.mass)
+            x01 = self.position - self.equilibrium_pos
+            p1 = (self.equilibrium_pos + x01 * np.cos(omega1 * ts)
+                  + (self.velocity / omega1) * np.sin(omega1 * ts))
+        if other.particle_type == ParticleType.FREE:
+            p2 = other.position + other.velocity * ts
+        else:
+            omega2 = np.sqrt(other.spring_constant / other.mass)
+            x02 = other.position - other.equilibrium_pos
+            p2 = (other.equilibrium_pos + x02 * np.cos(omega2 * ts)
+                  + (other.velocity / omega2) * np.sin(omega2 * ts))
+
+        gaps = p2 - p1
+
+        # --- Detect sign-change crossings ---
+        signs = np.sign(gaps)
+        crossings = np.where(signs[1:] * signs[:-1] < 0)[0]
+
+        # --- Detect tangential touches (gap approaches 0 without crossing) ---
+        # Find local minima where |gap| is very small
+        tangent_indices = np.array([], dtype=int)
+        if len(gaps) > 2:
+            local_min = (gaps[1:-1] <= gaps[:-2]) & (gaps[1:-1] <= gaps[2:])
+            near_zero = np.abs(gaps[1:-1]) < dt  # loose pre-filter
+            tangent_candidates = np.where(local_min & near_zero)[0] + 1
+            # Refine each candidate: check if true minimum is ≈ 0
+            verified = []
+            for k in int(tangent_candidates) if tangent_candidates.ndim == 0 else tangent_candidates:
+                t_lo = ts[max(k - 1, 0)]
+                t_hi = ts[min(k + 1, len(ts) - 1)]
+                # Golden-section-like refinement
+                for _ in range(30):
+                    t_m1 = t_lo + (t_hi - t_lo) * 0.382
+                    t_m2 = t_lo + (t_hi - t_lo) * 0.618
+                    if abs(_gap_scalar(t_m1)) < abs(_gap_scalar(t_m2)):
+                        t_hi = t_m2
+                    else:
+                        t_lo = t_m1
+                t_min = (t_lo + t_hi) / 2
+                if abs(_gap_scalar(t_min)) < 1e-8:
+                    verified.append(k)
+            tangent_indices = np.array(verified, dtype=int)
+
+        # Combine candidates and return earliest collision time
+        all_candidates = np.concatenate([crossings, tangent_indices])
+        if len(all_candidates) == 0:
+            return np.inf
+
+        idx = int(all_candidates.min())
+
+        # For crossings: bisect to find exact root
+        if idx in crossings:
+            t_lo, t_hi = ts[idx], ts[idx + 1]
+            g_lo = float(gaps[idx])
+            for _ in range(50):
+                t_mid = (t_lo + t_hi) / 2
+                g_mid = _gap_scalar(t_mid)
+                if abs(g_mid) < 1e-12:
+                    return float(t_mid)
+                if g_mid * g_lo < 0:
+                    t_hi = t_mid
+                else:
+                    t_lo = t_mid
+                    g_lo = g_mid
+            return float((t_lo + t_hi) / 2)
+        else:
+            # Tangential touch: find minimum via golden section
+            t_lo = ts[max(idx - 1, 0)]
+            t_hi = ts[min(idx + 1, len(ts) - 1)]
+            for _ in range(50):
+                t_m1 = t_lo + (t_hi - t_lo) * 0.382
+                t_m2 = t_lo + (t_hi - t_lo) * 0.618
+                if abs(_gap_scalar(t_m1)) < abs(_gap_scalar(t_m2)):
+                    t_hi = t_m2
+                else:
+                    t_lo = t_m1
+            return float((t_lo + t_hi) / 2)
     
     def kinetic_energy(self) -> float:
         """

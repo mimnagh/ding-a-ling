@@ -91,12 +91,11 @@ class CollisionDetector:
         
         n = len(self.chain)
         
-        # Check all neighboring pairs
+        # Check all neighboring pairs (each pair checked once via right neighbor)
         for i in range(n):
             left, right = self.chain.get_neighbors(i)
-            
-            # Check collision with right neighbor (avoid double-counting)
-            if right is not None and right > i:
+
+            if right is not None:
                 t_collision = self.chain[i].time_to_collision(self.chain[right])
                 if t_collision < np.inf:
                     event = CollisionEvent(
@@ -142,7 +141,7 @@ class CollisionDetector:
             left, right = self.chain.get_neighbors(idx)
             
             # Check collision with right neighbor
-            if right is not None and right > idx:
+            if right is not None:
                 t_collision = self.chain[idx].time_to_collision(self.chain[right])
                 if t_collision < np.inf:
                     event = CollisionEvent(
