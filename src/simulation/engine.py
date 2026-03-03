@@ -48,6 +48,47 @@ class SimulationResult:
     hot_bath: Optional[HeatBath] = None
     cold_bath: Optional[HeatBath] = None
 
+    def time_averaged_temperature(
+        self, t_start: float = 0.0, t_end: Optional[float] = None,
+    ) -> List[float]:
+        """Average temperature profile over a time window.
+
+        Args:
+            t_start: Start of averaging window (inclusive).
+            t_end:   End of averaging window (inclusive). Defaults to last snapshot.
+
+        Returns:
+            List of time-averaged temperatures, one per particle.
+        """
+        if t_end is None:
+            t_end = self.time
+
+        snapshots = [
+            temps for t, temps in self.temperature_profile
+            if t_start <= t <= t_end
+        ]
+        if not snapshots:
+            return []
+
+        n_particles = len(snapshots[0])
+        return [
+            sum(s[i] for s in snapshots) / len(snapshots)
+            for i in range(n_particles)
+        ]
+
+    def particle_positions(self, chain: 'Chain') -> List[float]:
+        """Return equilibrium positions of all particles.
+
+        Useful for plotting temperature vs spatial position.
+
+        Args:
+            chain: The chain used in the simulation.
+
+        Returns:
+            List of equilibrium positions, one per particle.
+        """
+        return [p.equilibrium_pos for p in chain.particles]
+
 
 class EventDrivenSimulator:
     """
