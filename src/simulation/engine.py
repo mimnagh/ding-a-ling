@@ -10,6 +10,7 @@ from ..core.collision import CollisionDetector, resolve_collision
 from ..core.particle import ParticleType
 from .flux import FluxMeter
 from .reservoir import HeatBath, ThermostatScheduler, identify_boundary_particles
+from .steady_state import SteadyStateDetector
 
 
 @dataclass
@@ -31,6 +32,10 @@ class SimulationConfig:
     # Reproducibility
     seed: Optional[int] = None
 
+    # Steady-state detection (open systems only)
+    ss_window_size: int = 100
+    ss_threshold: float = 0.01
+
 
 @dataclass
 class SimulationResult:
@@ -47,6 +52,10 @@ class SimulationResult:
     flux_meter: Optional[FluxMeter] = None
     hot_bath: Optional[HeatBath] = None
     cold_bath: Optional[HeatBath] = None
+
+    # Steady-state detection
+    is_steady_state: bool = False
+    steady_state_time: Optional[float] = None
 
     def time_averaged_temperature(
         self, t_start: float = 0.0, t_end: Optional[float] = None,
@@ -139,6 +148,14 @@ class EventDrivenSimulator:
             if flux_pos is None:
                 flux_pos = (chain[0].position + chain[-1].position) / 2.0
             self._flux_meter = FluxMeter(position=flux_pos, name="center")
+
+        # Steady-state detector (open systems only)
+        self._ss_detector: Optional[SteadyStateDetector] = None
+        if self._is_open:
+            self._ss_detector = SteadyStateDetector(
+                window_size=config.ss_window_size,
+                threshold=config.ss_threshold,
+            )
 
         # Observable accumulators
         self._energy_history: List[Tuple[float, float]] = []
@@ -244,6 +261,9 @@ class EventDrivenSimulator:
         # Final measurement
         self._measure_observables()
 
+        ss_reached = self._ss_detector.is_steady_state if self._ss_detector else False
+        ss_time = self._ss_detector.steady_state_time if self._ss_detector else None
+
         return SimulationResult(
             time=self.time,
             n_collisions=self._n_collisions,
@@ -254,6 +274,8 @@ class EventDrivenSimulator:
             flux_meter=self._flux_meter,
             hot_bath=self.hot_bath,
             cold_bath=self.cold_bath,
+            is_steady_state=ss_reached,
+            steady_state_time=ss_time,
         )
 
     # ------------------------------------------------------------------
@@ -288,4 +310,11 @@ class EventDrivenSimulator:
             for i in range(len(self.chain))
         ]
         self._temperature_profile.append((self.time, temps))
+
+        # Feed flux to steady-state detector
+        if self._ss_detector is not None and self._flux_meter is not None:
+            t_start = self._last_measurement_time if self._last_measurement_time >= 0 else 0.0
+            flux = self._flux_meter.time_averaged_flux(t_start, self.time)
+            self._ss_detector.add_sample(flux, self.time)
+
         self._last_measurement_time = self.time
