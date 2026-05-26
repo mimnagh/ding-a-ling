@@ -1,6 +1,10 @@
 {
   "database": "dolt",
   "backend": "dolt",
+  "dolt_mode": "server",
+  "dolt_server_host": "127.0.0.1",
+  "dolt_server_port": 59603,
   "dolt_database": "beads_ding-a-ling",
+  "project_id": "5384dd3e-f65b-4b6e-8685-8e0eecb14f78",
   "last_bd_version": "0.57.0"
 }
