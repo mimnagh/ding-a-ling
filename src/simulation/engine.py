@@ -125,8 +125,19 @@ class EventDrivenSimulator:
 
         self._is_open = chain.config.boundary == BoundaryCondition.OPEN
 
-        # Collision detection (always needed)
-        self._collision_detector = CollisionDetector(chain)
+        # Collision detection (always needed).  Open chains get hard elastic
+        # walls one lattice spacing beyond the end equilibria so the end
+        # particles stay confined (an end FREE particle then occupies a cell
+        # of the same width as interior free particles).
+        if self._is_open:
+            spacing = chain.config.spacing
+            self._collision_detector = CollisionDetector(
+                chain,
+                left_wall=chain[0].equilibrium_pos - spacing,
+                right_wall=chain[-1].equilibrium_pos + spacing,
+            )
+        else:
+            self._collision_detector = CollisionDetector(chain)
 
         # Open-system components
         self._thermostat_scheduler: Optional[ThermostatScheduler] = None
@@ -241,17 +252,42 @@ class EventDrivenSimulator:
             if is_collision:
                 # NOW pop the collision from the heap
                 collision_event = self._collision_detector.get_next_event()
-                p_i = self.chain[collision_event.particle_i]
-                p_j = self.chain[collision_event.particle_j]
-                resolve_collision(p_i, p_j)
-                self._collision_detector.update_events_for_particles(
-                    [collision_event.particle_i, collision_event.particle_j]
-                )
-                self._n_collisions += 1
+
+                # Guard against spurious events from grazing trajectories:
+                # the root-finder can occasionally schedule an event for a
+                # pair that is no longer approaching (a shallow double-root
+                # of the gap function).  Exchanging velocities then would
+                # turn a separating pair into an approaching one and drive
+                # the particles into overlap, so such events are dropped
+                # (the pair is simply re-predicted from its current state).
+                if collision_event.event_type == "wall":
+                    # Elastic reflection of an end particle off a hard wall
+                    p = self.chain[collision_event.particle_i]
+                    is_left_wall = collision_event.particle_i == 0
+                    moving_into_wall = (
+                        p.velocity < 0 if is_left_wall else p.velocity > 0
+                    )
+                    if moving_into_wall:
+                        p.velocity = -p.velocity
+                        self._n_collisions += 1
+                    changed = [collision_event.particle_i]
+                else:
+                    p_i = self.chain[collision_event.particle_i]
+                    p_j = self.chain[collision_event.particle_j]
+                    # particle_i < particle_j, so p_j sits to the right;
+                    # approaching means its velocity is lower than p_i's.
+                    if p_j.velocity - p_i.velocity < 0:
+                        resolve_collision(p_i, p_j)
+                        self._n_collisions += 1
+                    changed = [
+                        collision_event.particle_i, collision_event.particle_j
+                    ]
+
+                self._collision_detector.update_events_for_particles(changed)
 
                 # If a boundary particle was involved, reschedule thermostat
                 if self._thermostat_scheduler is not None:
-                    for idx in (collision_event.particle_i, collision_event.particle_j):
+                    for idx in changed:
                         if idx in self._boundary_indices:
                             self._thermostat_scheduler.reschedule_particle(
                                 idx, self.time
@@ -312,9 +348,9 @@ class EventDrivenSimulator:
         if self._flux_meter is None:
             return
         for p in self.chain.particles:
-            result = self._flux_meter.check_crossing(p, t_start, t_end)
-            if result is not None:
-                crossing_time, direction = result
+            for crossing_time, direction in self._flux_meter.check_crossings(
+                p, t_start, t_end
+            ):
                 self._flux_meter.record_crossing(p, crossing_time, direction)
 
     def _measure_observables(self) -> None:

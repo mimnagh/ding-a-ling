@@ -40,16 +40,95 @@ class CollisionDetector:
     updates the queue as particles evolve.
     """
     
-    def __init__(self, chain: Chain):
+    def __init__(
+        self,
+        chain: Chain,
+        left_wall: Optional[float] = None,
+        right_wall: Optional[float] = None,
+    ):
         """
         Initialize collision detector for a chain.
-        
+
         Args:
             chain: Chain of particles to monitor
+            left_wall: Position of a hard elastic wall left of particle 0,
+                or None for no wall.
+            right_wall: Position of a hard elastic wall right of the last
+                particle, or None for no wall.
         """
         self.chain = chain
+        self.left_wall = left_wall
+        self.right_wall = right_wall
         self.event_queue: List[CollisionEvent] = []
         self.current_time = 0.0
+
+    def _time_to_wall(self, idx: int) -> float:
+        """
+        Time until the end particle *idx* reaches its wall, or np.inf.
+
+        Only particle 0 (left wall) and particle n-1 (right wall) can hit
+        walls; chain ordering keeps interior particles away from them.
+        """
+        n = len(self.chain)
+        if idx == 0 and self.left_wall is not None:
+            wall = self.left_wall
+        elif idx == n - 1 and self.right_wall is not None:
+            wall = self.right_wall
+        else:
+            return np.inf
+
+        p = self.chain[idx]
+
+        from .particle import ParticleType
+        if p.particle_type == ParticleType.FREE:
+            if abs(p.velocity) < 1e-15:
+                return np.inf
+            dt = (wall - p.position) / p.velocity
+            # dt == 0 right after a reflection (particle at the wall,
+            # moving away) — only strictly future hits count.
+            return dt if dt > 1e-12 else np.inf
+
+        # Harmonic particle: hits the wall only if its amplitude reaches it.
+        omega = np.sqrt(p.spring_constant / p.mass)
+        x0 = p.position - p.equilibrium_pos
+        v0 = p.velocity
+        amplitude = np.sqrt(x0 ** 2 + (v0 / omega) ** 2)
+        if abs(wall - p.equilibrium_pos) > amplitude:
+            return np.inf
+
+        def offset(t):
+            return (
+                p.equilibrium_pos
+                + x0 * np.cos(omega * t)
+                + (v0 / omega) * np.sin(omega * t)
+                - wall
+            )
+
+        # One full period suffices: the motion is periodic.
+        period = 2 * np.pi / omega
+        eps = 1e-9
+        ts = np.linspace(eps, period, 257)
+        fs = offset(ts)
+        sign_change = np.where(fs[:-1] * fs[1:] < 0)[0]
+        if len(sign_change) == 0:
+            return np.inf
+        from scipy.optimize import brentq
+        k = int(sign_change[0])
+        return float(brentq(offset, ts[k], ts[k + 1], xtol=1e-12))
+
+    def _push_wall_event(self, idx: int) -> None:
+        """Queue a wall-reflection event for end particle *idx*, if any."""
+        t_wall = self._time_to_wall(idx)
+        if t_wall < np.inf:
+            heapq.heappush(
+                self.event_queue,
+                CollisionEvent(
+                    time=self.current_time + t_wall,
+                    particle_i=idx,
+                    particle_j=-1,
+                    event_type="wall",
+                ),
+            )
         
     def find_next_collision(self) -> Optional[CollisionEvent]:
         """
@@ -105,7 +184,11 @@ class CollisionDetector:
                         event_type="particle-particle"
                     )
                     heapq.heappush(self.event_queue, event)
-    
+
+        # Wall events for the end particles
+        self._push_wall_event(0)
+        self._push_wall_event(n - 1)
+
     def update_events_for_particles(self, particle_indices: List[int]) -> None:
         """
         Update collision events involving specified particles.
@@ -116,41 +199,45 @@ class CollisionDetector:
         Args:
             particle_indices: Indices of particles whose events need updating
         """
-        # Remove old events involving these particles
-        # (In practice, we'd mark them invalid; here we rebuild for simplicity)
-        affected_particles = set(particle_indices)
-        
-        # Add neighbors to affected set
-        for idx in particle_indices:
-            left, right = self.chain.get_neighbors(idx)
-            if left is not None:
-                affected_particles.add(left)
-            if right is not None:
-                affected_particles.add(right)
-        
-        # Remove events involving affected particles
+        # Only events involving particles whose state (velocity) changed are
+        # stale.  Events between untouched neighbours are still valid and
+        # MUST stay queued: removing them without re-adding silently loses
+        # collisions and lets particles pass through each other.
+        changed = set(particle_indices)
+
         self.event_queue = [
             event for event in self.event_queue
-            if event.particle_i not in affected_particles 
-            and event.particle_j not in affected_particles
+            if event.particle_i not in changed
+            and event.particle_j not in changed
         ]
         heapq.heapify(self.event_queue)
-        
-        # Add new events for affected particles
-        for idx in affected_particles:
+
+        # Re-predict both neighbour pairs of every changed particle.
+        pairs = set()
+        for idx in changed:
             left, right = self.chain.get_neighbors(idx)
-            
-            # Check collision with right neighbor
+            if left is not None:
+                pairs.add((min(left, idx), max(left, idx)))
             if right is not None:
-                t_collision = self.chain[idx].time_to_collision(self.chain[right])
-                if t_collision < np.inf:
-                    event = CollisionEvent(
-                        time=self.current_time + t_collision,
-                        particle_i=idx,
-                        particle_j=right,
-                        event_type="particle-particle"
-                    )
-                    heapq.heappush(self.event_queue, event)
+                pairs.add((min(idx, right), max(idx, right)))
+
+        for i, j in pairs:
+            t_collision = self.chain[i].time_to_collision(self.chain[j])
+            if t_collision < np.inf:
+                event = CollisionEvent(
+                    time=self.current_time + t_collision,
+                    particle_i=i,
+                    particle_j=j,
+                    event_type="particle-particle"
+                )
+                heapq.heappush(self.event_queue, event)
+
+        # Re-predict wall events for any changed end particle
+        n = len(self.chain)
+        if 0 in changed:
+            self._push_wall_event(0)
+        if (n - 1) in changed:
+            self._push_wall_event(n - 1)
     
     def get_next_event(self) -> Optional[CollisionEvent]:
         """

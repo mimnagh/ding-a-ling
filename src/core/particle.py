@@ -151,10 +151,14 @@ class Particle:
             return p2 - p1
 
         # Vectorized gap over array of times.
-        # Start at dt (not 0) to skip post-collision states where gap ≈ 0
-        # but particles are separating.
+        # The first sample is at a tiny eps rather than 0: a just-collided
+        # pair has gap == 0 at t=0, but at eps the relative velocity has
+        # opened a (tiny) gap of the correct sign, so separating pairs are
+        # not re-detected while genuinely imminent collisions (t < dt) are
+        # still caught by a sign change in the very first segment.
+        eps = 1e-9
         dt = 0.05
-        ts = np.arange(dt, max_time + dt, dt)
+        ts = np.concatenate(([eps], np.arange(dt, max_time + dt, dt)))
         # Build position arrays
         if self.particle_type == ParticleType.FREE:
             p1 = self.position + self.velocity * ts

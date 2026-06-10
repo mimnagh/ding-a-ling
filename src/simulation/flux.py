@@ -80,9 +80,29 @@ class FluxMeter:
         """
         Check whether a particle crosses x_ref during (t_start, t_end].
 
+        Returns only the FIRST crossing; prefer check_crossings, which
+        returns all of them (a bound particle can cross more than once
+        between events).
+
+        Returns:
+            (absolute_crossing_time, direction) if a crossing occurs,
+            None otherwise. direction is +1 (right) or -1 (left).
+        """
+        crossings = self.check_crossings(particle, t_start, t_end)
+        return crossings[0] if crossings else None
+
+    def check_crossings(
+        self,
+        particle: Particle,
+        t_start: float,
+        t_end: float,
+    ) -> List[Tuple[float, int]]:
+        """
+        Find ALL crossings of x_ref during (t_start, t_end].
+
         The particle is assumed to be at its current state at t_start.
         For free particles the crossing time is solved analytically.
-        For harmonic particles Brent's method finds the first root.
+        For harmonic particles Brent's method finds each root.
 
         Args:
             particle: Particle at its state corresponding to t_start.
@@ -90,13 +110,14 @@ class FluxMeter:
             t_end: End of the interval (inclusive).
 
         Returns:
-            (absolute_crossing_time, direction) if a crossing occurs,
-            None otherwise. direction is +1 (right) or -1 (left).
+            List of (absolute_crossing_time, direction) tuples in
+            chronological order. direction is +1 (right) or -1 (left).
         """
         if particle.particle_type == ParticleType.FREE:
-            return self._check_crossing_free(particle, t_start, t_end)
+            result = self._check_crossing_free(particle, t_start, t_end)
+            return [result] if result is not None else []
         else:
-            return self._check_crossing_harmonic(particle, t_start, t_end)
+            return self._check_crossings_harmonic(particle, t_start, t_end)
 
     def _check_crossing_free(
         self,
@@ -117,17 +138,22 @@ class FluxMeter:
         direction = 1 if v > 0 else -1
         return (t_start + dt_cross, direction)
 
-    def _check_crossing_harmonic(
+    def _check_crossings_harmonic(
         self,
         particle: Particle,
         t_start: float,
         t_end: float,
-    ) -> Optional[Tuple[float, int]]:
+    ) -> List[Tuple[float, int]]:
         """
         Crossing detection for a harmonically bound particle.
 
-        Finds the first root of x(dt) - x_ref = 0 in (0, t_end - t_start]
-        using Brent's method after identifying a sign change.
+        Finds ALL roots of x(dt) - x_ref = 0 in (0, t_end - t_start]
+        using Brent's method on each sign-changing segment.
+
+        The first sample sits at a tiny eps > 0 instead of 0 so that a
+        particle exactly at x_ref at t_start (its crossing was recorded
+        at the end of the previous interval) is not double-counted,
+        while crossings early in the interval are still detected.
         """
         from scipy.optimize import brentq
 
@@ -146,14 +172,17 @@ class FluxMeter:
             )
 
         dt_max = t_end - t_start
+        if dt_max <= 0:
+            return []
 
-        # Sample densely enough to catch oscillations (≥4 points per half-period)
-        n_samples = max(20, int(dt_max * omega / np.pi) * 4 + 4)
-        dt_vals = np.linspace(0.0, dt_max, n_samples + 1)
-        f_vals = np.array([x_relative(dt) for dt in dt_vals])
+        # Sample densely enough to catch oscillations (≥8 points per half-period)
+        n_samples = max(20, int(dt_max * omega / np.pi) * 8 + 8)
+        eps = min(1e-9, dt_max * 1e-6)
+        dt_vals = np.linspace(eps, dt_max, n_samples + 1)
+        f_vals = x_relative(dt_vals)
 
-        # Find first sign change; skip dt=0 (particle is at t_start, not yet crossing)
-        for i in range(1, len(dt_vals) - 1):
+        crossings: List[Tuple[float, int]] = []
+        for i in range(len(dt_vals) - 1):
             if f_vals[i] * f_vals[i + 1] < 0:
                 dt_cross = brentq(
                     x_relative, dt_vals[i], dt_vals[i + 1], xtol=1e-12
@@ -163,9 +192,9 @@ class FluxMeter:
                     + v0 * np.cos(omega * dt_cross)
                 )
                 direction = 1 if v_cross > 0 else -1
-                return (t_start + dt_cross, direction)
+                crossings.append((t_start + dt_cross, direction))
 
-        return None
+        return crossings
 
     def time_averaged_flux(self, t_start: float, t_end: float) -> float:
         """
