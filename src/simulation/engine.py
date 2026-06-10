@@ -1,7 +1,7 @@
 """Event-driven simulation engine for the ding-a-ling model."""
 
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Sequence
 
 import numpy as np
 
@@ -35,6 +35,15 @@ class SimulationConfig:
     # Steady-state detection (open systems only)
     ss_window_size: int = 100
     ss_threshold: float = 0.01
+
+    # Optional override: explicit boundary particle indices.
+    # When set, these take precedence over n_boundary.
+    # left_boundary_indices  → coupled to hot bath (T_hot)
+    # right_boundary_indices → coupled to cold bath (T_cold)
+    # Useful when you want the thermostat to couple only to FREE particles,
+    # as in the Mimnagh & Ballentine (1997) reservoir boundary condition.
+    left_boundary_indices: Optional[Sequence[int]] = None
+    right_boundary_indices: Optional[Sequence[int]] = None
 
 
 @dataclass
@@ -138,7 +147,13 @@ class EventDrivenSimulator:
                 rng=np.random.default_rng(seeds[1]),
             )
 
-            left, right = identify_boundary_particles(chain, config.n_boundary)
+            if (config.left_boundary_indices is not None
+                    and config.right_boundary_indices is not None):
+                # Caller-specified boundary indices (e.g. always FREE particles)
+                left = list(config.left_boundary_indices)
+                right = list(config.right_boundary_indices)
+            else:
+                left, right = identify_boundary_particles(chain, config.n_boundary)
             self._thermostat_scheduler = ThermostatScheduler(
                 self.hot_bath, self.cold_bath, left, right,
             )
