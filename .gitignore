@@ -50,6 +50,10 @@ Thumbs.db
 # bv (beads viewer) local config and caches
 .bv/
 
+# Claude Code local state (machine-specific symlinks and worktrees)
+.claude/skills/
+.claude/worktrees/
+
 # Dolt database files (added by bd init)
 .dolt/
 *.db
