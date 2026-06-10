@@ -178,68 +178,29 @@ class Particle:
         gaps = p2 - p1
 
         # --- Detect sign-change crossings ---
+        # Tangential touches (gap reaching exactly 0 without crossing) are
+        # deliberately ignored: at a tangent the relative velocity at
+        # contact is zero, so an elastic exchange would be a no-op anyway.
         signs = np.sign(gaps)
         crossings = np.where(signs[1:] * signs[:-1] < 0)[0]
-
-        # --- Detect tangential touches (gap approaches 0 without crossing) ---
-        # Find local minima where |gap| is very small
-        tangent_indices = np.array([], dtype=int)
-        if len(gaps) > 2:
-            local_min = (gaps[1:-1] <= gaps[:-2]) & (gaps[1:-1] <= gaps[2:])
-            near_zero = np.abs(gaps[1:-1]) < dt  # loose pre-filter
-            tangent_candidates = np.where(local_min & near_zero)[0] + 1
-            # Refine each candidate: check if true minimum is ≈ 0
-            verified = []
-            for k in int(tangent_candidates) if tangent_candidates.ndim == 0 else tangent_candidates:
-                t_lo = ts[max(k - 1, 0)]
-                t_hi = ts[min(k + 1, len(ts) - 1)]
-                # Golden-section-like refinement
-                for _ in range(30):
-                    t_m1 = t_lo + (t_hi - t_lo) * 0.382
-                    t_m2 = t_lo + (t_hi - t_lo) * 0.618
-                    if abs(_gap_scalar(t_m1)) < abs(_gap_scalar(t_m2)):
-                        t_hi = t_m2
-                    else:
-                        t_lo = t_m1
-                t_min = (t_lo + t_hi) / 2
-                if abs(_gap_scalar(t_min)) < 1e-8:
-                    verified.append(k)
-            tangent_indices = np.array(verified, dtype=int)
-
-        # Combine candidates and return earliest collision time
-        all_candidates = np.concatenate([crossings, tangent_indices])
-        if len(all_candidates) == 0:
+        if len(crossings) == 0:
             return np.inf
 
-        idx = int(all_candidates.min())
-
-        # For crossings: bisect to find exact root
-        if idx in crossings:
-            t_lo, t_hi = ts[idx], ts[idx + 1]
-            g_lo = float(gaps[idx])
-            for _ in range(50):
-                t_mid = (t_lo + t_hi) / 2
-                g_mid = _gap_scalar(t_mid)
-                if abs(g_mid) < 1e-12:
-                    return float(t_mid)
-                if g_mid * g_lo < 0:
-                    t_hi = t_mid
-                else:
-                    t_lo = t_mid
-                    g_lo = g_mid
-            return float((t_lo + t_hi) / 2)
-        else:
-            # Tangential touch: find minimum via golden section
-            t_lo = ts[max(idx - 1, 0)]
-            t_hi = ts[min(idx + 1, len(ts) - 1)]
-            for _ in range(50):
-                t_m1 = t_lo + (t_hi - t_lo) * 0.382
-                t_m2 = t_lo + (t_hi - t_lo) * 0.618
-                if abs(_gap_scalar(t_m1)) < abs(_gap_scalar(t_m2)):
-                    t_hi = t_m2
-                else:
-                    t_lo = t_m1
-            return float((t_lo + t_hi) / 2)
+        # Bisect the first sign-changing segment to find the exact root
+        idx = int(crossings[0])
+        t_lo, t_hi = ts[idx], ts[idx + 1]
+        g_lo = float(gaps[idx])
+        for _ in range(50):
+            t_mid = (t_lo + t_hi) / 2
+            g_mid = _gap_scalar(t_mid)
+            if abs(g_mid) < 1e-12:
+                return float(t_mid)
+            if g_mid * g_lo < 0:
+                t_hi = t_mid
+            else:
+                t_lo = t_mid
+                g_lo = g_mid
+        return float((t_lo + t_hi) / 2)
     
     def kinetic_energy(self) -> float:
         """

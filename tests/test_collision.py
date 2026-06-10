@@ -163,10 +163,14 @@ def test_collision_detector_with_periodic_boundaries():
     )
     chain = Chain(config)
     
-    # Set velocities so particles will collide
-    chain[0].velocity = -1.0  # Moving left (wraps to particle 2)
-    chain[1].velocity = 0.0
-    chain[2].velocity = 1.0   # Moving right (wraps to particle 0)
+    # Set velocities so particles genuinely cross (a free particle drifting
+    # into an oscillator's range).  Velocities of exactly ±1 would make the
+    # oscillators' turning points only graze the free particle tangentially
+    # (zero relative velocity at contact), which the detector deliberately
+    # ignores as a momentum-exchange no-op.
+    chain[0].velocity = -1.0
+    chain[1].velocity = -0.5  # Free particle drifting left toward particle 0
+    chain[2].velocity = 1.0
     
     detector = CollisionDetector(chain)
     detector.build_event_queue()
