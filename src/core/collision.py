@@ -79,13 +79,17 @@ class CollisionDetector:
 
         p = self.chain[idx]
 
+        # Outward = toward this wall.  Only motion INTO the wall counts as
+        # a hit: after a reflection float error can leave the particle a
+        # hair past the wall plane, and predicting the "crossing" back
+        # through it would schedule a zero-advance event loop.
+        outward = -1.0 if idx == 0 else 1.0
+
         from .particle import ParticleType
         if p.particle_type == ParticleType.FREE:
-            if abs(p.velocity) < 1e-15:
+            if p.velocity * outward <= 1e-15:
                 return np.inf
             dt = (wall - p.position) / p.velocity
-            # dt == 0 right after a reflection (particle at the wall,
-            # moving away) — only strictly future hits count.
             return dt if dt > 1e-12 else np.inf
 
         # Harmonic particle: hits the wall only if its amplitude reaches it.
@@ -109,12 +113,20 @@ class CollisionDetector:
         eps = 1e-9
         ts = np.linspace(eps, period, 257)
         fs = offset(ts)
-        sign_change = np.where(fs[:-1] * fs[1:] < 0)[0]
-        if len(sign_change) == 0:
-            return np.inf
+        sign_changes = np.where(fs[:-1] * fs[1:] < 0)[0]
         from scipy.optimize import brentq
-        k = int(sign_change[0])
-        return float(brentq(offset, ts[k], ts[k + 1], xtol=1e-12))
+        for k in sign_changes:
+            t_root = float(brentq(offset, ts[k], ts[k + 1], xtol=1e-12))
+            v_root = (
+                -x0 * omega * np.sin(omega * t_root)
+                + v0 * np.cos(omega * t_root)
+            )
+            # Accept only roots where the particle moves INTO the wall;
+            # crossings back through the plane (float error can leave it
+            # marginally outside after a reflection) are not hits.
+            if v_root * outward > 1e-15:
+                return t_root
+        return np.inf
 
     def _push_wall_event(self, idx: int) -> None:
         """Queue a wall-reflection event for end particle *idx*, if any."""

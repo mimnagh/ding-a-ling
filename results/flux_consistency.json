@@ -1,14 +1,14 @@
 {
   "n": 30,
   "epsilon": 1.5,
-  "J_spatial": 0.0003328715943483489,
-  "J_hot_bath_rate": 0.0010952048080088267,
-  "J_cold_bath_rate": -0.00022423292384508013,
-  "J_reservoir": 0.00043548594208187334,
-  "n_crossings": 460,
-  "rel_diff": 0.2356318260079047,
-  "consistent": false,
+  "J_spatial": 0.0997430877805754,
+  "J_hot_bath_rate": 0.1149167225878581,
+  "J_cold_bath_rate": 0.11359153123343822,
+  "J_reservoir": 0.11425412691064815,
+  "n_crossings": 11349,
+  "rel_diff": 0.12700669570930273,
+  "consistent": true,
   "rtol": 0.2,
-  "total_time": 3000.0,
+  "total_time": 20000.0,
   "is_steady_state": false
 }
